@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     batch_size = 2
     iq = torch.randn(batch_size, 2, 2048, device=device)
-    stft_map = torch.randn(batch_size, 1, 384, 256, device=device)
+    stft_map = torch.randn(batch_size, 3, 384, 256, device=device)
 
     with torch.no_grad():
         logits, feat_for_attention = model(iq, stft_map)

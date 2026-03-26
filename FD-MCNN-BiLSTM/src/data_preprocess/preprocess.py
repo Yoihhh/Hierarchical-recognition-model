@@ -321,15 +321,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        # required=True,
-        default="E:/1My_Research_Content/SCI_code/dataset/30dB",
+        required=True,
+        # default="E:/1My_Research_Content/SCI_code/dataset/30dB",
         help="原始数据根目录",  # E:/1My_Research_Content/SCI_code/dataset/30dB
     )
     parser.add_argument(
         "--save-root",
         type=Path,
-        # required=True,
-        default="E:/1My_Research_Content/SCI_code/dataset_preprocessed/30dB",
+        required=True,
+        # default="E:/1My_Research_Content/SCI_code/dataset_preprocessed/30dB",
         help="预处理结果输出目录",  # E:/1My_Research_Content/SCI_code/dataset_preprocessed/30dB
     )
     parser.add_argument(
