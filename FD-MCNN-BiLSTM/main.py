@@ -54,19 +54,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path(r"E:\1My_Research_Content\SCI_code\dataset_preprocessed\30dB"),
+        default=Path(r"{your_root}\dataset_preprocessed\{0-30}dB"),
         help="预处理后数据根目录，包含 train/test/val 及 metadata.csv",
     )
     parser.add_argument(
         "--results-root",
         type=Path,
-        default=Path(r"E:\1My_Research_Content\SCI_code\experimental_results\30dB\data_results"),
-        help="保存指标、混淆矩阵的目录",
+        default=Path(r"{your_root}\experimental_results\{0-30}dB\data_results"),
+        help="保存训练验证测试结果的目录",
     )
     parser.add_argument(
         "--models-root",
         type=Path,
-        default=Path(r"E:\1My_Research_Content\SCI_code\experimental_results\30dB\model_results"),
+        default=Path(r"{your_root}\experimental_results\{0-30}dB\model_results"),
         help="保存模型权重的目录",
     )
     parser.add_argument("--batch-size", type=int, default=16)
@@ -139,12 +139,10 @@ def one_hot(idx: int, num_classes: int = 5) -> Tensor:
 
 
 def parse_strong_weak(class_name: str) -> Tuple[int, int]:
-    """从文件名解析强/弱基类，格式示例: '2×16QAM+2ASK'."""
-    # 兼容 '×' 与 'x'
     parts = class_name.replace("×", "x").split("+")
     if len(parts) != 2:
         raise ValueError(f"无法解析强弱标签: {class_name}")
-    strong_part = parts[0]  # 形如 '2x16QAM'
+    strong_part = parts[0]
     weak_part = parts[1]
 
     def _strip_coeff(p: str) -> str:
@@ -158,8 +156,6 @@ def parse_strong_weak(class_name: str) -> Tuple[int, int]:
 
 
 class SignalDataset(Dataset):
-    """读取预处理后的 IQ / STFT 与 metadata，生成强/弱标签。"""
-
     def __init__(self, split_dir: Path, metadata_path: Path) -> None:
         self.split_dir = split_dir
         self.samples = self._read_metadata_rows(metadata_path)
@@ -183,7 +179,6 @@ class SignalDataset(Dataset):
 
                     rows: List[Dict[str, str]] = []
                     for row in reader:
-                        # 跳过空行，防止出现全 None 或空字符串记录。
                         if not row or all((v is None or str(v).strip() == "") for v in row.values()):
                             continue
                         rows.append({k: (v if v is not None else "") for k, v in row.items()})
@@ -212,8 +207,8 @@ class SignalDataset(Dataset):
         stft_path = Path(row["stft"])
         class_name = row["class_name"]
 
-        iq = torch.from_numpy(np.load(iq_path)).float()  # (2,2048)
-        stft = torch.from_numpy(np.load(stft_path)).float()  # (384,256)
+        iq = torch.from_numpy(np.load(iq_path)).float()
+        stft = torch.from_numpy(np.load(stft_path)).float()
 
         strong_id, weak_id = parse_strong_weak(class_name)
         strong_tgt = one_hot(strong_id)
@@ -223,14 +218,11 @@ class SignalDataset(Dataset):
 
 
 class FeatureProjector(nn.Module):
-    """轻量级序列长度调整，避免大矩阵线性映射带来的计算开销。"""
-
     def __init__(self, target_len: int) -> None:
         super().__init__()
         self.target_len = target_len
 
     def forward(self, x: Tensor) -> Tensor:
-        # x: (B, 2, L)
         if x.size(-1) == self.target_len:
             return x
         return F.interpolate(x, size=self.target_len, mode="linear", align_corners=False)
@@ -260,7 +252,6 @@ def build_loaders(data_root: Path, batch_size: int, num_workers: int) -> Dict[st
 def compute_confusion(y_true: List[int], y_pred: List[int], num_classes: int = 5) -> np.ndarray:
     if confusion_matrix is not None:
         return confusion_matrix(y_true, y_pred, labels=list(range(num_classes)))
-    # fallback manual
     cm = np.zeros((num_classes, num_classes), dtype=int)
     for t, p in zip(y_true, y_pred):
         cm[t, p] += 1
@@ -272,7 +263,6 @@ def mixed_id_from_pair(strong_id: int, weak_id: int) -> int:
 
 
 def choose_weak_for_mixed(weak_logit_row: Tensor, strong_pred: int) -> int:
-    # 20类混叠信号不包含强弱同类组合；若预测相同，取弱信号的次优类别。
     for idx in weak_logit_row.argsort(descending=True).tolist():
         if idx != strong_pred:
             return int(idx)
@@ -306,7 +296,6 @@ def print_epoch_dashboard(
 
 
 def print_test_dashboard(test_loss: float, test_acc_mixed: float) -> None:
-    # 将 loss 映射到 [0,1] 区间用于文本条形图（loss 越小条越长）
     loss_score = 1.0 / (1.0 + max(0.0, test_loss))
     print(
         f"[Test Visual] MixedAcc={test_acc_mixed:.3f} ({_bar(test_acc_mixed)}) "
@@ -323,63 +312,6 @@ def get_next_run_dir(results_root: Path) -> Path:
     run_dir = results_root / str(next_id)
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
-
-
-def plot_confusion_matrix(cm: np.ndarray, classes: List[str], title: str, save_path: Path) -> None:
-    if plt is None:
-        print(f"[Plot] matplotlib 未安装，跳过图像保存: {save_path}")
-        return
-
-    row_sum = cm.sum(axis=1, keepdims=True)
-    cm_norm = np.divide(cm, row_sum, out=np.zeros_like(cm, dtype=float), where=row_sum != 0)
-    num_classes = len(classes)
-    side = max(8, 0.55 * num_classes)
-
-    if sns is not None:
-        sns.set_context("paper", font_scale=1.2)
-        plt.rcParams["font.family"] = "serif"
-        plt.rcParams["font.serif"] = ["Times New Roman", "DejaVu Serif"]
-        fig, ax = plt.subplots(figsize=(side, side * 0.8), dpi=300)
-        sns.heatmap(
-            cm_norm,
-            annot=True,
-            fmt=".2f",
-            cmap="Blues",
-            xticklabels=classes,
-            yticklabels=classes,
-            annot_kws={"size": 8},
-            square=True,
-            linewidths=0,
-            linecolor=None,
-            cbar=False,
-            ax=ax,
-        )
-        ax.set_title(title, fontsize=11, pad=10)
-        ax.set_xlabel("Predicted Label", fontsize=10, labelpad=10)
-        ax.set_ylabel("True Label", fontsize=10, labelpad=10)
-        ax.tick_params(axis="x", rotation=45, labelsize=9)
-        ax.tick_params(axis="y", rotation=0, labelsize=9)
-    else:
-        fig, ax = plt.subplots(figsize=(side, side * 0.8), dpi=300)
-        im = ax.imshow(cm_norm, interpolation="nearest", cmap="Blues", vmin=0.0, vmax=1.0)
-        ax.set_title(title, fontsize=11, pad=10)
-        ax.set_xlabel("Predicted Label", fontsize=10, labelpad=10)
-        ax.set_ylabel("True Label", fontsize=10, labelpad=10)
-        ax.set_xticks(np.arange(num_classes))
-        ax.set_yticks(np.arange(num_classes))
-        ax.set_xticklabels(classes)
-        ax.set_yticklabels(classes)
-        ax.tick_params(axis="x", rotation=45, labelsize=9)
-        ax.tick_params(axis="y", rotation=0, labelsize=9)
-        for i in range(num_classes):
-            for j in range(num_classes):
-                ax.text(j, i, f"{cm_norm[i, j]:.2f}", ha="center", va="center", fontsize=8)
-
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[Plot] 混淆矩阵已保存: {save_path}")
-
 
 def plot_loss_curves(train_losses: List[float], val_losses: List[float], save_path: Path) -> None:
     if plt is None:
@@ -481,10 +413,10 @@ def train_one_epoch(
             return float("nan"), float("nan"), float("nan")
 
         with autocast(enabled=amp_enabled):
-            first_logits, feat = fd_mcnn(iq, stft)  # feat: (B,2,128)
-            feat_proj = proj(feat)  # (B,2,feat_dim)
+            first_logits, feat = fd_mcnn(iq, stft)
+            feat_proj = proj(feat)
             attn_out = attn(feat_proj)
-            second_logits = bilstm(attn_out)  # (B,5)
+            second_logits = bilstm(attn_out)
 
             loss_first = criterion(first_logits, y_strong)
             loss_second = criterion(second_logits, y_weak)
@@ -565,9 +497,9 @@ def eval_epoch(
         nan_log_max_batches: int,
         collect_confusion: bool = False,
 ) -> Tuple[float, float, float, Optional[np.ndarray], Optional[np.ndarray]]:
-    fd_mcnn.eval();
-    attn.eval();
-    bilstm.eval();
+    fd_mcnn.eval()
+    attn.eval()
+    bilstm.eval()
     proj.eval()
     total_loss = 0.0
     correct_first = 0
@@ -697,8 +629,6 @@ def eval_test_mixed(
             elif match_num == 1:
                 one_true += 1
 
-        # both_true = ((first_pred == strong_true) & (second_pred == weak_true)).sum().item()
-        # one_true = ((first_pred == strong_true) ^ (second_pred == weak_true)).sum().item()
         mixed_score += both_true + 0.5 * one_true
 
         for i in range(iq.size(0)):
@@ -721,7 +651,7 @@ def maybe_run_preprocess(data_root: Path) -> None:
     # 若 metadata 已存在则跳过；否则运行预处理
     if (data_root / "train" / "metadata.csv").exists():
         return
-    raw_root = Path(r"E:\1My_Research_Content\SCI_code\dataset\30dB")
+    raw_root = Path(r"{your_dataset}")  # 未作预处理的数据集路径
     pre = DataPreprocessor(data_root=raw_root, save_root=data_root)
     pre.process_all()
 
@@ -855,13 +785,7 @@ def main() -> None:
         )
         print(f"[Test] Loss {test_loss:.4f} | MixedAcc {test_acc_mixed:.3f}")
         print_test_dashboard(test_loss, test_acc_mixed)
-        np.save(run_dir / "confusion_test_mixed.npy", cm_mixed)
-        plot_confusion_matrix(
-            cm_mixed,
-            MIXED_CLASSES,
-            title="Confusion Matrix (20-Class Mixed Signal)",
-            save_path=run_dir / "confusion_test_mixed.png",
-        )
+
         with (run_dir / "test_result.txt").open("w", encoding="utf-8") as f:
             f.write(f"loss={test_loss:.6f}\n")
             f.write(f"acc_mixed={test_acc_mixed:.6f}\n")

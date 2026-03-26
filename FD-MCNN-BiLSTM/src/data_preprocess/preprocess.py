@@ -1,19 +1,3 @@
-"""IQ 数据预处理模块 / IQ data preprocessing pipeline.
-
-功能概述
---------
-1) 读取数据集根目录下的 .mat 复数 IQ 信号（字段名 data）。
-2) 按 2048 采样点不重叠切分，尾部不足部分丢弃。
-3) 每个切片生成两路输出：
-   - 频域特征：STFT（nperseg=128, noverlap=120, nfft=1024）幅值谱，缩放到 384×256。
-   - 时域特征：将 I/Q 拆分为 2×2048，并对每片分别做 min-max 归一化。
-4) 结果按 split/train|test|val 落盘为 .npy 或 .pt，便于后续训练直接加载。
-
-备注：
-- 仅依赖 numpy/scipy；save_format="pt" 时需要 torch（可选）。
-- 默认使用幅值谱（非 dB），后续可根据模型需要再调整。
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -27,25 +11,23 @@ from scipy.io import loadmat
 from scipy.ndimage import zoom
 from scipy.signal import stft
 
-try:  # Optional dependency for progress visualization
+try:
     from tqdm import tqdm
-except ImportError:  # pragma: no cover
+except ImportError:
     tqdm = None
 
-try:  # Optional dependency for MATLAB v7.3 (.mat in HDF5 format)
+try:
     import h5py
-except ImportError:  # pragma: no cover
+except ImportError:
     h5py = None
 
-try:  # Optional dependency for save_format='pt'
+try:
     import torch
-except ImportError:  # pragma: no cover
+except ImportError:
     torch = None
 
 
 class DataPreprocessor:
-    """混叠信号数据预处理 / Aliased IQ preprocessing pipeline."""
-
     def __init__(
         self,
         data_root: Path | str,
@@ -54,7 +36,7 @@ class DataPreprocessor:
         stft_win: int = 128,
         stft_overlap: int = 120,
         stft_nfft: int = 1024,
-        spec_size: Tuple[int, int] = (384, 256),  # (H, W)
+        spec_size: Tuple[int, int] = (384, 256),
         save_format: str = "npy",
         dtype: np.dtype = np.float32,
         split_names: Sequence[str] = ("train", "test", "val"),
@@ -76,9 +58,8 @@ class DataPreprocessor:
         if self.save_format == "pt" and torch is None:
             raise ImportError("save_format='pt' requires torch to be installed.")
 
-    # 公共接口 --------------------------------------------------------------
+
     def process_all(self) -> Dict[str, List[Dict[str, str]]]:
-        """处理所有 split（train/test/val），返回元数据列表。"""
         summary: Dict[str, List[Dict[str, str]]] = {}
         for split in self.split_names:
             summary[split] = self.process_split(split)
@@ -86,7 +67,6 @@ class DataPreprocessor:
         return summary
 
     def process_split(self, split: str) -> List[Dict[str, str]]:
-        """处理单个数据划分，返回该划分的切片元数据列表。"""
         split_dir = self.data_root / split
         if not split_dir.exists():
             raise FileNotFoundError(f"Split directory not found: {split_dir}")
@@ -149,9 +129,7 @@ class DataPreprocessor:
         self._save_split_metadata(split, results)
         return results
 
-    # 具体步骤 --------------------------------------------------------------
     def _load_mat(self, path: Path) -> np.ndarray:
-        """读取 .mat 文件并返回复数 IQ 向量。"""
         try:
             mat = loadmat(path)
             if "data" not in mat:
@@ -159,7 +137,6 @@ class DataPreprocessor:
             arr = mat["data"].squeeze()
             return self._as_complex64(arr)
         except NotImplementedError as e:
-            # MATLAB v7.3 files are HDF5-backed and require h5py.
             if "Please use HDF reader for matlab v7.3 files" not in str(e):
                 raise
             if h5py is None:
@@ -175,14 +152,11 @@ class DataPreprocessor:
                 return self._as_complex64(arr)
 
     def _as_complex64(self, arr: np.ndarray) -> np.ndarray:
-        """Convert common MATLAB IQ storage layouts to 1-D complex64."""
         arr = np.asarray(arr).squeeze()
 
-        # Case 1: already complex
         if np.iscomplexobj(arr):
             return np.asarray(arr, dtype=np.complex64).reshape(-1)
 
-        # Case 2: structured dtype, e.g. [('real','<f4'), ('imag','<f4')]
         names = arr.dtype.names
         if names:
             lower_names = {n.lower(): n for n in names}
@@ -194,24 +168,20 @@ class DataPreprocessor:
                 ].astype(np.float32, copy=False)
                 return np.asarray(out, dtype=np.complex64).reshape(-1)
 
-        # Case 3: last dim is 2 -> [real, imag]
         if arr.ndim >= 1 and arr.shape[-1] == 2:
             out = arr[..., 0].astype(np.float32, copy=False) + 1j * arr[
                 ..., 1
             ].astype(np.float32, copy=False)
             return np.asarray(out, dtype=np.complex64).reshape(-1)
 
-        # Fallback: treat as real-valued IQ (imag=0)
         return np.asarray(arr, dtype=np.float32).astype(np.complex64).reshape(-1)
 
     def _slice_iq(self, x: np.ndarray) -> np.ndarray:
-        """按 slice_len 不重叠切片，尾部不足部分丢弃。"""
         n_full = len(x) // self.slice_len
         trimmed = x[: n_full * self.slice_len]
         return trimmed.reshape(n_full, self.slice_len)
 
     def _to_spectrogram(self, x_slice: np.ndarray) -> np.ndarray:
-        """对单个切片执行 STFT，返回 RGB 频谱图 (3, H, W)。"""
         _, _, zxx = stft(
             x_slice,
             window="hann",
@@ -222,16 +192,14 @@ class DataPreprocessor:
             padded=False,
             boundary=None,
         )
-        spec = np.abs(zxx)  # 幅值谱
+        spec = np.abs(zxx)
 
-        # Normalize to [0, 1] before RGB mapping.
         smin, smax = spec.min(), spec.max()
         if np.isclose(smax, smin):
             spec_norm = np.zeros_like(spec, dtype=np.float32)
         else:
             spec_norm = ((spec - smin) / (smax - smin)).astype(np.float32, copy=False)
 
-        # Convert single-channel spectrogram to RGB (C, H, W).
         spec_rgb = self._pseudo_color_rgb(spec_norm)
 
         target_h, target_w = self.spec_size
@@ -241,7 +209,6 @@ class DataPreprocessor:
         return spec_resized.astype(self.dtype, copy=False)
 
     def _pseudo_color_rgb(self, spec_norm: np.ndarray) -> np.ndarray:
-        """Map normalized 2D spectrogram to RGB channels with shape (3, H, W)."""
         x = np.asarray(spec_norm, dtype=np.float32)
         r = np.clip(1.5 - np.abs(4.0 * x - 3.0), 0.0, 1.0)
         g = np.clip(1.5 - np.abs(4.0 * x - 2.0), 0.0, 1.0)
@@ -249,7 +216,6 @@ class DataPreprocessor:
         return np.stack([r, g, b], axis=0)
 
     def _to_iq_vector(self, x_slice: np.ndarray) -> np.ndarray:
-        """拆分 I/Q 并做逐片 min-max 归一化，返回形状 (2, slice_len)。"""
         i = np.real(x_slice)
         q = np.imag(x_slice)
         iq = np.stack([i, q], axis=0)
@@ -264,7 +230,6 @@ class DataPreprocessor:
         return iq_norm
 
     def _save(self, arr: np.ndarray, path: Path) -> str:
-        """根据格式保存数组，返回保存路径字符串。"""
         path.parent.mkdir(parents=True, exist_ok=True)
         if self.save_format == "npy":
             np.save(path, arr)
@@ -274,7 +239,6 @@ class DataPreprocessor:
         return str(path)
 
     def _build_label_map(self) -> Dict[str, int]:
-        """Build stable class-id mapping from all .mat file names under configured splits."""
         class_names: set[str] = set()
         for split in self.split_names:
             split_dir = self.data_root / split
@@ -285,7 +249,6 @@ class DataPreprocessor:
         return {name: idx for idx, name in enumerate(sorted(class_names))}
 
     def _save_split_metadata(self, split: str, rows: List[Dict[str, str]]) -> None:
-        """Save per-split metadata for training/eval label lookup."""
         out_path = self.save_root / split / "metadata.csv"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
@@ -303,7 +266,6 @@ class DataPreprocessor:
             writer.writerows(rows)
 
     def _save_label_map(self) -> None:
-        """Save global class-name to class-id mapping."""
         out_path = self.save_root / "label_map.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("w", encoding="utf-8") as f:
@@ -322,15 +284,13 @@ def parse_args() -> argparse.Namespace:
         "--data-root",
         type=Path,
         required=True,
-        # default="E:/1My_Research_Content/SCI_code/dataset/30dB",
-        help="原始数据根目录",  # E:/1My_Research_Content/SCI_code/dataset/30dB
+        help="原始数据根目录",
     )
     parser.add_argument(
         "--save-root",
         type=Path,
         required=True,
-        # default="E:/1My_Research_Content/SCI_code/dataset_preprocessed/30dB",
-        help="预处理结果输出目录",  # E:/1My_Research_Content/SCI_code/dataset_preprocessed/30dB
+        help="预处理结果输出目录",
     )
     parser.add_argument(
         "--format",
@@ -345,23 +305,3 @@ def parse_args() -> argparse.Namespace:
         help="输出数据类型。",
     )
     return parser.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-    pre = DataPreprocessor(
-        data_root=args.data_root,
-        save_root=args.save_root,
-        save_format=args.format,
-        dtype=np.float32 if args.dtype == "float32" else np.float64,
-    )
-    summary = pre.process_all()
-
-    total_slices = sum(len(v) for v in summary.values())
-    print(f"预处理完成，共生成 {total_slices} 个切片。")
-    for split, items in summary.items():
-        print(f"  {split}: {len(items)} slices, 例：{items[0]['stft']} / {items[0]['iq']}")
-
-
-if __name__ == "__main__":
-    main()
