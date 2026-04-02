@@ -1,5 +1,5 @@
-实验结果
+Experimental results
 ==================================
 
-- data_results：存放每次训练、验证、测试的结果
-- model_results：存放最佳实验模型
+- data_results：Store the results of each training, validation, and testing
+- model_results：Store the best experimental model

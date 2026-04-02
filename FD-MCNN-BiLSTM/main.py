@@ -313,6 +313,63 @@ def get_next_run_dir(results_root: Path) -> Path:
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
 
+
+def plot_confusion_matrix(cm: np.ndarray, classes: List[str], title: str, save_path: Path) -> None:
+    if plt is None:
+        print(f"[Plot] matplotlib 未安装，跳过图像保存: {save_path}")
+        return
+
+    row_sum = cm.sum(axis=1, keepdims=True)
+    cm_norm = np.divide(cm, row_sum, out=np.zeros_like(cm, dtype=float), where=row_sum != 0)
+    num_classes = len(classes)
+    side = max(8, 0.55 * num_classes)
+
+    if sns is not None:
+        sns.set_context("paper", font_scale=1.2)
+        plt.rcParams["font.family"] = "serif"
+        plt.rcParams["font.serif"] = ["Times New Roman", "DejaVu Serif"]
+        fig, ax = plt.subplots(figsize=(side, side * 0.8), dpi=300)
+        sns.heatmap(
+            cm_norm,
+            annot=True,
+            fmt=".2f",
+            cmap="Blues",
+            xticklabels=classes,
+            yticklabels=classes,
+            annot_kws={"size": 8},
+            square=True,
+            linewidths=0,
+            linecolor=None,
+            cbar=False,
+            ax=ax,
+        )
+        ax.set_title(title, fontsize=11, pad=10)
+        ax.set_xlabel("Predicted Label", fontsize=10, labelpad=10)
+        ax.set_ylabel("True Label", fontsize=10, labelpad=10)
+        ax.tick_params(axis="x", rotation=45, labelsize=9)
+        ax.tick_params(axis="y", rotation=0, labelsize=9)
+    else:
+        fig, ax = plt.subplots(figsize=(side, side * 0.8), dpi=300)
+        im = ax.imshow(cm_norm, interpolation="nearest", cmap="Blues", vmin=0.0, vmax=1.0)
+        ax.set_title(title, fontsize=11, pad=10)
+        ax.set_xlabel("Predicted Label", fontsize=10, labelpad=10)
+        ax.set_ylabel("True Label", fontsize=10, labelpad=10)
+        ax.set_xticks(np.arange(num_classes))
+        ax.set_yticks(np.arange(num_classes))
+        ax.set_xticklabels(classes)
+        ax.set_yticklabels(classes)
+        ax.tick_params(axis="x", rotation=45, labelsize=9)
+        ax.tick_params(axis="y", rotation=0, labelsize=9)
+        for i in range(num_classes):
+            for j in range(num_classes):
+                ax.text(j, i, f"{cm_norm[i, j]:.2f}", ha="center", va="center", fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Plot] 混淆矩阵已保存: {save_path}")
+
+
 def plot_loss_curves(train_losses: List[float], val_losses: List[float], save_path: Path) -> None:
     if plt is None:
         print(f"[Plot] matplotlib 未安装，跳过图像保存: {save_path}")
@@ -785,7 +842,13 @@ def main() -> None:
         )
         print(f"[Test] Loss {test_loss:.4f} | MixedAcc {test_acc_mixed:.3f}")
         print_test_dashboard(test_loss, test_acc_mixed)
-
+        np.save(run_dir / "confusion_test_mixed.npy", cm_mixed)
+        plot_confusion_matrix(
+            cm_mixed,
+            MIXED_CLASSES,
+            title="Confusion Matrix (20-Class Mixed Signal)",
+            save_path=run_dir / "confusion_test_mixed.png",
+        )
         with (run_dir / "test_result.txt").open("w", encoding="utf-8") as f:
             f.write(f"loss={test_loss:.6f}\n")
             f.write(f"acc_mixed={test_acc_mixed:.6f}\n")
