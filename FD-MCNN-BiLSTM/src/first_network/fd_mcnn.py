@@ -55,7 +55,7 @@ class FDMcnnDetector(nn.Module):
         self.num_classes = num_classes
         self.reduce_channels = reduce_channels
 
-        # 时域分支 (IQ)
+        # Time-Domain Branch (IQ)
         self.time_branch = nn.Sequential(
             nn.Conv1d(2, 16, kernel_size=7, padding=_same_padding_1d(7), bias=False),
             nn.BatchNorm1d(16),
@@ -68,7 +68,7 @@ class FDMcnnDetector(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-        # 调制特性分支 (IQ)
+        # Modulation-Characteristics Branch (IQ)
         self.mod_branch = nn.Sequential(
             SeparableConv1d(2, 16, kernel_size=5),
             nn.BatchNorm1d(16),
@@ -79,7 +79,7 @@ class FDMcnnDetector(nn.Module):
         )
         self.mod_attn = ChannelAttention(32, reduction=8)
 
-        # 频域分支 (STFT)
+        # Frequency-Domain Branch (STFT)
         self.freq_branch = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=(3, 1), padding=_same_padding_2d((3, 1)), bias=False),
             nn.BatchNorm2d(16),
@@ -90,7 +90,7 @@ class FDMcnnDetector(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
-        # 能量感知分支 (STFT)
+        # Energy-Sensing Branch (STFT)
         self.energy_branch = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=(5, 1), padding=_same_padding_2d((5, 1)), bias=False),
             nn.BatchNorm2d(16),
@@ -101,7 +101,6 @@ class FDMcnnDetector(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
-        # 融合降维
         self.reduce_time_mod = nn.Sequential(
             nn.Conv1d(96, reduce_channels, kernel_size=1, bias=False),
             nn.ReLU(inplace=True),
@@ -113,7 +112,6 @@ class FDMcnnDetector(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1)),
         )
 
-        # 注意力加权 (向量级)
         self.attn_mlp = nn.Sequential(
             nn.Linear(2 * reduce_channels, reduce_channels, bias=False),
             nn.ReLU(inplace=True),
