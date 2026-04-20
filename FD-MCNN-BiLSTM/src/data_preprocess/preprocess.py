@@ -271,37 +271,35 @@ class DataPreprocessor:
         with out_path.open("w", encoding="utf-8") as f:
             json.dump(self.label_to_id, f, ensure_ascii=False, indent=2)
 
-    # 属性 ------------------------------------------------------------------
     @property
     def save_suffix(self) -> str:
         return "pt" if self.save_format == "pt" else "npy"
 
 
-# CLI 入口 ------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="IQ 数据预处理 (STFT + Min-Max).")
+    parser = argparse.ArgumentParser(description="IQ data preprocessing (STFT + Min-Max).")
     parser.add_argument(
         "--data-root",
         type=Path,
         required=True,
-        help="原始数据根目录",
+        help="Raw data root directory",
     )
     parser.add_argument(
         "--save-root",
         type=Path,
         required=True,
-        help="预处理结果输出目录",
+        help="Preprocessing output directory",
     )
     parser.add_argument(
         "--format",
         choices=["npy", "pt"],
         default="npy",
-        help="输出格式：npy 或 pt (torch.save)。",
+        help="Output format：npy or pt (torch.save)。",
     )
     parser.add_argument(
         "--dtype",
         choices=["float32", "float64"],
         default="float32",
-        help="输出数据类型。",
+        help="Output data type",
     )
     return parser.parse_args()
