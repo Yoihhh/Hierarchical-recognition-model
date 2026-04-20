@@ -29,7 +29,7 @@ class BiLstmClassifier(nn.Module):
             bidirectional=True,
         )
 
-        # MLP 头
+        # MLP head
         self.head = nn.Sequential(
             nn.Linear(32, 64),
             nn.ReLU(inplace=True),
@@ -40,14 +40,14 @@ class BiLstmClassifier(nn.Module):
 
     def _format_input(self, x: Tensor) -> Tensor:
         if x.dim() != 3:
-            raise ValueError("输入张量维度需为 3 (B, C, L) 或 (B, L, C)。")
+            raise ValueError("The input tensor dimension must be 3 (B, C, L) or (B, L, C)")
         b, a, c = x.shape
         if a == 2:
             x = x.transpose(1, 2)
         elif c == 2:
             pass
         else:
-            raise ValueError("最后或倒数第二个维度必须为通道数 2。")
+            raise ValueError("The last or second-to-last dimension must be the number of channels, which is 2")
         return x
 
     def forward(self, x: Tensor) -> Tensor:
