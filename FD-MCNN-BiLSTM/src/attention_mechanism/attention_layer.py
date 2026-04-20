@@ -72,7 +72,6 @@ class WeakSignalAttention(nn.Module):
         super().__init__()
         self.embed_dim = embed_dim
         self.se = SEBlock(channels=2, reduction=se_reduction)
-        # Project input feature dim D to embed_dim (initialized on first pass).
         self.input_proj = nn.LazyLinear(embed_dim)
         self.timesformer = TimesFormerBlock(
             embed_dim=embed_dim, num_heads=num_heads, mlp_hidden=mlp_hidden
@@ -86,7 +85,7 @@ class WeakSignalAttention(nn.Module):
             x = x.view(b, 2, d // 2)
         elif x.dim() == 3:
             if x.size(1) != 2:
-                raise ValueError("Expected channel dimension = 2 for attention input.")
+                raise ValueError("Expected channel dimension = 2 for attention input")
         else:
             raise ValueError("Input must be 2D or 3D tensor.")
         return x
