@@ -1,4 +1,4 @@
-"""主训练脚本：预处理 -> FD-MCNN -> 注意力 -> BiLSTM 全流程。"""
+"Main training script: Preprocessing -> FD-MCNN -> Attention -> BiLSTM full pipeline"
 
 from __future__ import annotations
 
@@ -55,19 +55,19 @@ def parse_args() -> argparse.Namespace:
         "--data-root",
         type=Path,
         default=Path(r"{your_root}\dataset_preprocessed\{0-30}dB"),
-        help="预处理后数据根目录，包含 train/test/val 及 metadata.csv",
+        help="Root directory of preprocessed data, containing train/test/val splits and metadata.csv",
     )
     parser.add_argument(
         "--results-root",
         type=Path,
         default=Path(r"{your_root}\experimental_results\{0-30}dB\data_results"),
-        help="保存训练验证测试结果的目录",
+        help="Directory for saving training, validation, and test results",
     )
     parser.add_argument(
         "--models-root",
         type=Path,
         default=Path(r"{your_root}\experimental_results\{0-30}dB\model_results"),
-        help="保存模型权重的目录",
+        help="Directory for saving model weights",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=40)
@@ -75,58 +75,58 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--force-preprocess", action="store_true", help="若需重新运行预处理")
+    parser.add_argument("--force-preprocess", action="store_true", help="If preprocessing needs to be rerun")
     parser.add_argument(
         "--test-checkpoint",
         type=str,
         choices=["last", "best"],
         default="best",
-        help="测试时使用的权重：last=最后一轮，best=验证最佳",
+        help="Weights used during testing: last = final epoch, best = best validation performance",
     )
     parser.add_argument(
         "--feat-dim",
         type=int,
         choices=[128, 256, 512, 2048],
         default=128,
-        help="attention 输出/投影后的序列长度，影响 BiLSTM 计算量。",
+        help="attention The sequence length after output/projection affects the computational cost of BiLSTM",
     )
     parser.add_argument(
         "--grad-accum",
         type=int,
         default=1,
-        help="梯度累积步数，用于显存不足时扩大等效 batch。",
+        help="Gradient accumulation steps, used to increase the effective batch size when GPU memory is insufficient",
     )
     parser.add_argument(
         "--amp",
         type=str,
         choices=["off", "on", "auto"],
         default="off",
-        help="自动混合精度开关：off=关闭，on=开启，auto=仅CUDA开启。",
+        help="Automatic mixed precision switch: off = disabled, on = enabled, auto = enabled only on CUDA",
     )
     parser.add_argument(
         "--grad-clip-norm",
         type=float,
         default=1.0,
-        help="梯度裁剪阈值（<=0 表示关闭）。",
+        help="Gradient clipping threshold (<= 0 disables clipping)",
     )
     parser.add_argument(
         "--nan-log-max-batches",
         type=int,
         default=3,
-        help="每个阶段最多打印多少个 NaN/Inf batch 诊断日志。",
+        help="Maximum number of NaN/Inf batch diagnostic logs to print per stage",
     )
     parser.add_argument(
         "--nan-detect",
         dest="nan_detect",
         action="store_true",
         default=True,
-        help="启用 NaN/Inf 检测并打印定位日志。",
+        help="Enable NaN/Inf detection and print localization logs",
     )
     parser.add_argument(
         "--no-nan-detect",
         dest="nan_detect",
         action="store_false",
-        help="关闭 NaN/Inf 检测日志。",
+        help="Disable NaN/Inf detection logging",
     )
     return parser.parse_args()
 
@@ -141,7 +141,7 @@ def one_hot(idx: int, num_classes: int = 5) -> Tensor:
 def parse_strong_weak(class_name: str) -> Tuple[int, int]:
     parts = class_name.replace("×", "x").split("+")
     if len(parts) != 2:
-        raise ValueError(f"无法解析强弱标签: {class_name}")
+        raise ValueError(f"Unable to parse strong/weak labels: {class_name}")
     strong_part = parts[0]
     weak_part = parts[1]
 
@@ -151,7 +151,7 @@ def parse_strong_weak(class_name: str) -> Tuple[int, int]:
     strong_cls = _strip_coeff(strong_part)
     weak_cls = _strip_coeff(weak_part)
     if strong_cls not in BASE_TO_ID or weak_cls not in BASE_TO_ID:
-        raise ValueError(f"超出预期类别: {class_name}")
+        raise ValueError(f"Unexpected category: {class_name}")
     return BASE_TO_ID[strong_cls], BASE_TO_ID[weak_cls]
 
 
@@ -171,11 +171,11 @@ class SignalDataset(Dataset):
                 with metadata_path.open("r", encoding=enc, newline="") as f:
                     reader = csv.DictReader(f)
                     if not reader.fieldnames:
-                        raise RuntimeError(f"metadata 文件为空或缺少表头: {metadata_path}")
+                        raise RuntimeError(f"metadata File is empty or missing header: {metadata_path}")
                     missing = required_fields.difference(set(reader.fieldnames))
                     if missing:
                         missing_str = ", ".join(sorted(missing))
-                        raise RuntimeError(f"metadata 缺少必需列: {missing_str} ({metadata_path})")
+                        raise RuntimeError(f"metadata Missing required columns: {missing_str} ({metadata_path})")
 
                     rows: List[Dict[str, str]] = []
                     for row in reader:
@@ -194,8 +194,8 @@ class SignalDataset(Dataset):
 
         enc_text = ", ".join(tried_encodings)
         raise RuntimeError(
-            f"无法读取 metadata 文件: {metadata_path}. 已尝试编码: {enc_text}. "
-            f"最后错误: {last_error}"
+            f"Unable to read metadata file: {metadata_path}. Attempted encodings: {enc_text}. "
+            f"Lsat error: {last_error}"
         )
 
     def __len__(self) -> int:
@@ -316,7 +316,7 @@ def get_next_run_dir(results_root: Path) -> Path:
 
 def plot_confusion_matrix(cm: np.ndarray, classes: List[str], title: str, save_path: Path) -> None:
     if plt is None:
-        print(f"[Plot] matplotlib 未安装，跳过图像保存: {save_path}")
+        print(f"[Plot] matplotlib is not installed. Skipping image saving: {save_path}")
         return
 
     row_sum = cm.sum(axis=1, keepdims=True)
@@ -367,15 +367,15 @@ def plot_confusion_matrix(cm: np.ndarray, classes: List[str], title: str, save_p
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"[Plot] 混淆矩阵已保存: {save_path}")
+    print(f"[Plot] Confusion matrix has been saved: {save_path}")
 
 
 def plot_loss_curves(train_losses: List[float], val_losses: List[float], save_path: Path) -> None:
     if plt is None:
-        print(f"[Plot] matplotlib 未安装，跳过图像保存: {save_path}")
+        print(f"[Plot] matplotlib is not installed. Skipping image saving: {save_path}")
         return
     if not train_losses:
-        print("[Plot] 无训练损失记录，跳过 Loss 曲线绘制。")
+        print("[Plot] No training loss records found. Skipping loss curve plotting")
         return
 
     epochs = np.arange(1, len(train_losses) + 1)
@@ -391,7 +391,7 @@ def plot_loss_curves(train_losses: List[float], val_losses: List[float], save_pa
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"[Plot] Loss 曲线已保存: {save_path}")
+    print(f"[Plot] Loss curve has been saved: {save_path}")
 
 
 def _format_tensor_stats(x: Tensor) -> str:
@@ -418,7 +418,7 @@ def _check_finite_tensors(
         return True
 
     if log_counter[0] < max_logs:
-        print(f"[NaNDetect][{split}] Epoch={epoch} Batch={batch_idx} 检测到非有限值：")
+        print(f"[NaNDetect][{split}] Epoch={epoch} Batch={batch_idx} non-finite value detected：")
         for name, tensor in bad_items:
             print(f"  - {name}: {_format_tensor_stats(tensor)}")
         log_counter[0] += 1
@@ -509,7 +509,7 @@ def train_one_epoch(
                 scaler.unscale_(optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(params_for_clip, grad_clip_norm)
                 if not torch.isfinite(torch.as_tensor(grad_norm)):
-                    print(f"[Warn][train] Epoch={epoch} Batch={step} 梯度非有限，跳过该优化步。")
+                    print(f"[Warn][train] Epoch={epoch} Batch={step} Gradient is non-finite. Skipping this optimization step。")
                     optimizer.zero_grad(set_to_none=True)
                     scaler.update()
                     continue
@@ -517,13 +517,12 @@ def train_one_epoch(
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
 
-    # 处理未整除的残余梯度
     if len(loader) % grad_accum != 0:
         if grad_clip_norm > 0:
             scaler.unscale_(optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(params_for_clip, grad_clip_norm)
             if not torch.isfinite(torch.as_tensor(grad_norm)):
-                print(f"[Warn][train] Epoch={epoch} 尾批次梯度非有限，跳过该优化步。")
+                print(f"[Warn][train] Epoch={epoch} Gradient of the trailing batch is non-finite. Skipping this optimization step")
                 optimizer.zero_grad(set_to_none=True)
                 scaler.update()
                 if total == 0:
@@ -705,10 +704,9 @@ def eval_test_mixed(
 
 
 def maybe_run_preprocess(data_root: Path) -> None:
-    # 若 metadata 已存在则跳过；否则运行预处理
     if (data_root / "train" / "metadata.csv").exists():
         return
-    raw_root = Path(r"{your_dataset}")  # 未作预处理的数据集路径
+    raw_root = Path(r"{your_dataset}")
     pre = DataPreprocessor(data_root=raw_root, save_root=data_root)
     pre.process_all()
 
@@ -718,14 +716,14 @@ def main() -> None:
     set_seed(args.seed)
     args.results_root.mkdir(parents=True, exist_ok=True)
     run_dir = get_next_run_dir(args.results_root)
-    print(f"[Result] 当前运行输出目录: {run_dir}")
+    print(f"[Result] Current run output directory: {run_dir}")
     args.models_root.mkdir(parents=True, exist_ok=True)
 
     maybe_run_preprocess(args.data_root)
 
     loaders = build_loaders(args.data_root, args.batch_size, args.num_workers)
     if "train" not in loaders:
-        raise RuntimeError("未找到训练集 metadata，请先运行预处理。")
+        raise RuntimeError("Training set metadata not found. Please run preprocessing first")
 
     device = torch.device(args.device)
     if device.type == "cuda":
@@ -800,10 +798,9 @@ def main() -> None:
             epoch, args.epochs, train_loss, train_acc_s, train_acc_w, val_loss, val_acc_s, val_acc_w
         )
         if not (np.isfinite(train_loss) and np.isfinite(val_loss)):
-            print(f"[Stop] Epoch={epoch} 检测到 NaN/Inf，提前停止训练以避免污染后续参数。")
+            print(f"[Stop] Epoch={epoch} NaN/Inf detected. Stopping training early to avoid corrupting subsequent parameters")
             break
 
-        # 保存最佳
         if val_acc_s + val_acc_w > best_val_acc and "val" in loaders:
             best_val_acc = val_acc_s + val_acc_w
             torch.save(
@@ -821,7 +818,6 @@ def main() -> None:
 
     plot_loss_curves(train_loss_history, val_loss_history, run_dir / "curve_train_val_loss.png")
 
-    # 测试集评估
     if "test" in loaders:
         if args.test_checkpoint == "best":
             if best_ckpt_path.exists():
