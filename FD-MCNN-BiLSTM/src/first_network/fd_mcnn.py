@@ -101,6 +101,7 @@ class FDMcnnDetector(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
+        # Fusion Dimensionality Reduction
         self.reduce_time_mod = nn.Sequential(
             nn.Conv1d(96, reduce_channels, kernel_size=1, bias=False),
             nn.ReLU(inplace=True),
@@ -112,6 +113,7 @@ class FDMcnnDetector(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1)),
         )
 
+        # Attention weighting
         self.attn_mlp = nn.Sequential(
             nn.Linear(2 * reduce_channels, reduce_channels, bias=False),
             nn.ReLU(inplace=True),
