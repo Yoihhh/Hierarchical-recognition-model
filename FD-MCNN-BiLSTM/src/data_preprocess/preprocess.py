@@ -1,3 +1,7 @@
+"""
+IQ Signal Data Preprocessing Module
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +32,7 @@ except ImportError:
 
 
 class DataPreprocessor:
+    # Initialize preprocessing configuration.
     def __init__(
         self,
         data_root: Path | str,
@@ -60,6 +65,10 @@ class DataPreprocessor:
 
 
     def process_all(self) -> Dict[str, List[Dict[str, str]]]:
+        """
+        Process all dataset splits (train/test/val).
+        Returns summary metadata.
+        """
         summary: Dict[str, List[Dict[str, str]]] = {}
         for split in self.split_names:
             summary[split] = self.process_split(split)
@@ -67,6 +76,7 @@ class DataPreprocessor:
         return summary
 
     def process_split(self, split: str) -> List[Dict[str, str]]:
+        #  Process a single dataset split.
         split_dir = self.data_root / split
         if not split_dir.exists():
             raise FileNotFoundError(f"Split directory not found: {split_dir}")
@@ -130,6 +140,7 @@ class DataPreprocessor:
         return results
 
     def _load_mat(self, path: Path) -> np.ndarray:
+        # Load MATLAB .mat file and extract 'data' field.
         try:
             mat = loadmat(path)
             if "data" not in mat:
@@ -152,6 +163,7 @@ class DataPreprocessor:
                 return self._as_complex64(arr)
 
     def _as_complex64(self, arr: np.ndarray) -> np.ndarray:
+        # Convert input array into complex64 format.
         arr = np.asarray(arr).squeeze()
 
         if np.iscomplexobj(arr):
@@ -177,11 +189,13 @@ class DataPreprocessor:
         return np.asarray(arr, dtype=np.float32).astype(np.complex64).reshape(-1)
 
     def _slice_iq(self, x: np.ndarray) -> np.ndarray:
+        # Split long IQ signal into fixed-length slices.
         n_full = len(x) // self.slice_len
         trimmed = x[: n_full * self.slice_len]
         return trimmed.reshape(n_full, self.slice_len)
 
     def _to_spectrogram(self, x_slice: np.ndarray) -> np.ndarray:
+        # Convert IQ slice into normalized STFT spectrogram.
         _, _, zxx = stft(
             x_slice,
             window="hann",
@@ -277,6 +291,7 @@ class DataPreprocessor:
 
 
 def parse_args() -> argparse.Namespace:
+    # Parse command-line arguments for preprocessing script.
     parser = argparse.ArgumentParser(description="IQ data preprocessing (STFT + Min-Max).")
     parser.add_argument(
         "--data-root",
