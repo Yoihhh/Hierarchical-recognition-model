@@ -1,3 +1,8 @@
+"""
+BiLSTM Classifier
+This module performs sequential modeling for signal classification.
+"""
+
 from __future__ import annotations
 
 import torch
@@ -5,8 +10,11 @@ from torch import nn, Tensor
 
 
 class BiLstmClassifier(nn.Module):
+    # Multi-layer Bidirectional LSTM classifier.
     def __init__(self, num_classes: int = 20) -> None:
         super().__init__()
+
+        # Input: 2-channel sequence
         self.lstm1 = nn.LSTM(
             input_size=2,
             hidden_size=128,
@@ -14,6 +22,8 @@ class BiLstmClassifier(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
+
+        # Intermediate temporal modeling
         self.lstm2 = nn.LSTM(
             input_size=256,
             hidden_size=64,
@@ -21,6 +31,8 @@ class BiLstmClassifier(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
+
+        # Feature compression
         self.lstm3 = nn.LSTM(
             input_size=128,
             hidden_size=16,
@@ -29,7 +41,7 @@ class BiLstmClassifier(nn.Module):
             bidirectional=True,
         )
 
-        # MLP head
+        # MLP Classification Head
         self.head = nn.Sequential(
             nn.Linear(32, 64),
             nn.ReLU(inplace=True),
@@ -39,6 +51,7 @@ class BiLstmClassifier(nn.Module):
         )
 
     def _format_input(self, x: Tensor) -> Tensor:
+        # Ensure input is in shape [B, L, C].
         if x.dim() != 3:
             raise ValueError("The input tensor dimension must be 3 (B, C, L) or (B, L, C)")
         b, a, c = x.shape
@@ -53,10 +66,12 @@ class BiLstmClassifier(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = self._format_input(x)
 
+        # Sequential modeling
         out, _ = self.lstm1(x)
         out, _ = self.lstm2(out)
         out, _ = self.lstm3(out)
 
+        # Temporal aggregation
         out = out.mean(dim=1)
 
         logits = self.head(out)
