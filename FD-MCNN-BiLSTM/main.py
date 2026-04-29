@@ -1,4 +1,11 @@
-"Main training script: Preprocessing -> FD-MCNN -> Attention -> BiLSTM full pipeline"
+"""
+Main training script: Preprocessing -> FD-MCNN -> Attention -> BiLSTM pipeline
+
+This script implements an end-to-end framework for mixed signal recognition:
+1. FD-MCNN extracts coarse features and predicts the dominant (strong) signal.
+2. Attention module enhances weak signal representation.
+3. BiLSTM captures temporal dependencies for weak signal classification.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +41,7 @@ try:
 except ImportError:
     sns = None
 
+# Base modulation classes (single signal)
 BASE_CLASSES = ["2ASK", "4FSK", "16QAM", "AM", "FM"]
 BASE_TO_ID = {c: i for i, c in enumerate(BASE_CLASSES)}
 MIXED_CLASSES = [f"{s}+{w}" for s in BASE_CLASSES for w in BASE_CLASSES if s != w]
@@ -41,6 +49,9 @@ MIXED_TO_ID = {c: i for i, c in enumerate(MIXED_CLASSES)}
 
 
 def set_seed(seed: int = 42) -> None:
+    """
+    Set random seed for reproducibility across numpy, torch, and CUDA.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -131,7 +142,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-
+# Label processing
 def one_hot(idx: int, num_classes: int = 5) -> Tensor:
     t = torch.zeros(num_classes, dtype=torch.float32)
     t[idx] = 1.0
@@ -139,6 +150,9 @@ def one_hot(idx: int, num_classes: int = 5) -> Tensor:
 
 
 def parse_strong_weak(class_name: str) -> Tuple[int, int]:
+    """
+    Parse mixed signal label into (strong_id, weak_id).
+    """
     parts = class_name.replace("×", "x").split("+")
     if len(parts) != 2:
         raise ValueError(f"Unable to parse strong/weak labels: {class_name}")
@@ -156,6 +170,9 @@ def parse_strong_weak(class_name: str) -> Tuple[int, int]:
 
 
 class SignalDataset(Dataset):
+    """
+    Custom dataset for loading IQ signals and STFT features.
+    """
     def __init__(self, split_dir: Path, metadata_path: Path) -> None:
         self.split_dir = split_dir
         self.samples = self._read_metadata_rows(metadata_path)
@@ -424,7 +441,7 @@ def _check_finite_tensors(
         log_counter[0] += 1
     return False
 
-
+# Training core
 def train_one_epoch(
         loader: DataLoader,
         fd_mcnn: nn.Module,
@@ -469,12 +486,18 @@ def train_one_epoch(
         ):
             return float("nan"), float("nan"), float("nan")
 
+        # Forward pass
         with autocast(enabled=amp_enabled):
             first_logits, feat = fd_mcnn(iq, stft)
+            
+            # Feature refinement
             feat_proj = proj(feat)
             attn_out = attn(feat_proj)
+            
+            # Weak signal classification
             second_logits = bilstm(attn_out)
 
+            # Dual-task loss (strong + weak)
             loss_first = criterion(first_logits, y_strong)
             loss_second = criterion(second_logits, y_weak)
             loss = loss_first + loss_second
@@ -674,6 +697,7 @@ def eval_test_mixed(
         both_true = 0
         one_true = 0
 
+        # Compare predicted pair with ground truth pair
         for i in range(pred_label.size(0)):
             pred_set = set(pred_label[i].tolist())
             true_set = set(true_label[i].tolist())
@@ -711,6 +735,7 @@ def maybe_run_preprocess(data_root: Path) -> None:
     pre.process_all()
 
 
+# Training pipeline
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -729,6 +754,7 @@ def main() -> None:
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
 
+    # Initialize models
     fd_mcnn = FDMcnnDetector(num_classes=5).to(device)
     proj = FeatureProjector(target_len=args.feat_dim).to(device)
     attn = WeakSignalAttention(
@@ -756,6 +782,7 @@ def main() -> None:
     val_loss_history: List[float] = []
 
     for epoch in range(1, args.epochs + 1):
+        # Training
         train_loss, train_acc_s, train_acc_w = train_one_epoch(
             loaders["train"],
             fd_mcnn,
@@ -776,6 +803,7 @@ def main() -> None:
 
         val_loss = val_acc_s = val_acc_w = 0.0
         if "val" in loaders:
+            # Validation
             val_loss, val_acc_s, val_acc_w, _, _ = eval_epoch(
                 loaders["val"],
                 fd_mcnn,
@@ -801,6 +829,7 @@ def main() -> None:
             print(f"[Stop] Epoch={epoch} NaN/Inf detected. Stopping training early to avoid corrupting subsequent parameters")
             break
 
+        # Save best model
         if val_acc_s + val_acc_w > best_val_acc and "val" in loaders:
             best_val_acc = val_acc_s + val_acc_w
             torch.save(
