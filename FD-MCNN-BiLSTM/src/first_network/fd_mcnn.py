@@ -1,3 +1,8 @@
+"""
+FD-MCNN Detector
+This module implements a multi-branch feature extraction network for signal classification.
+"""
+
 from __future__ import annotations
 
 from typing import Tuple
@@ -7,6 +12,7 @@ from torch import nn, Tensor
 
 
 def _same_padding_1d(kernel_size: int) -> int:
+    # Compute padding size to keep 1D feature length unchanged.
     return kernel_size // 2
 
 
@@ -16,6 +22,7 @@ def _same_padding_2d(ks: Tuple[int, int]) -> Tuple[int, int]:
 
 
 class SeparableConv1d(nn.Module):
+    # Depthwise separable 1D convolution.
     def __init__(self, in_ch: int, out_ch: int, kernel_size: int) -> None:
         super().__init__()
         pad = _same_padding_1d(kernel_size)
@@ -31,6 +38,7 @@ class SeparableConv1d(nn.Module):
 
 
 class ChannelAttention(nn.Module):
+    # Channel Attention (Squeeze-and-Excitation style).
     def __init__(self, channels: int, reduction: int = 8) -> None:
         super().__init__()
         hidden = max(channels // reduction, 1)
@@ -50,6 +58,15 @@ class ChannelAttention(nn.Module):
 
 
 class FDMcnnDetector(nn.Module):
+    """
+    FD-MCNN
+    Designed for mixed signal recognition by combining:
+        - Time-domain features
+        - Modulation characteristics
+        - Frequency-domain features
+        - Energy distribution
+    Final output is obtained via attention-weighted feature fusion.
+    """
     def __init__(self, num_classes: int = 20, reduce_channels: int = 64) -> None:
         super().__init__()
         self.num_classes = num_classes
@@ -124,6 +141,17 @@ class FDMcnnDetector(nn.Module):
         self.classifier = nn.Linear(2 * reduce_channels, num_classes)
 
     def forward(self, iq: Tensor, stft_map: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Forward pass.
+
+        Args:
+            iq: time-domain IQ signal [B, 2, T]
+            stft_map: spectrogram [B, C, H, W]
+
+        Returns:
+            logits: classification output
+            feat_for_attention: fused feature representation
+        """
         if stft_map.size(1) != 1:
             stft_1ch = stft_map.mean(dim=1, keepdim=True)
         else:
