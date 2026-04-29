@@ -1,14 +1,24 @@
-﻿from __future__ import annotations
+"""
+Weak Signal Attention Module
+This module is designed to enhance weak signal representations in mixed-signal scenarios.
+"""
+
+from __future__ import annotations
 
 import torch
 from torch import Tensor, nn
 
 
 class SEBlock(nn.Module):
+    # Squeeze-and-Excitation (SE) Block for channel attention.
     def __init__(self, channels: int, reduction: int = 4) -> None:
         super().__init__()
         hidden = max(channels // reduction, 1)
+        
+        # Global average pooling (squeeze)
         self.pool = nn.AdaptiveAvgPool1d(1)
+
+        # Channel-wise excitation (lightweight MLP via 1x1 conv)
         self.fc = nn.Sequential(
             nn.Conv1d(channels, hidden, kernel_size=1, bias=False),
             nn.ReLU(inplace=True),
@@ -23,6 +33,9 @@ class SEBlock(nn.Module):
 
 
 class TimesFormerBlock(nn.Module):
+    """
+    Lightweight TimesFormer-style block.
+    """
     def __init__(
         self,
         embed_dim: int = 2048,
@@ -31,16 +44,26 @@ class TimesFormerBlock(nn.Module):
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
+
+        # Linear projection for embedding alignment
         self.patch_embed = nn.Linear(embed_dim, embed_dim)
+
+        # Temporal attention (along sequence dimension)
         self.time_attn = nn.MultiheadAttention(
             embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
         )
+
+        # Spatial attention (across feature dimension)
         self.space_attn = nn.MultiheadAttention(
             embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
         )
+        
+        # Layer normalization
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
         self.norm3 = nn.LayerNorm(embed_dim)
+
+        # Feed-forward network
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_hidden),
             nn.GELU(),
@@ -62,6 +85,7 @@ class TimesFormerBlock(nn.Module):
 
 
 class WeakSignalAttention(nn.Module):
+    # Weak Signal Attention Module
     def __init__(
         self,
         embed_dim: int = 2048,
@@ -71,8 +95,14 @@ class WeakSignalAttention(nn.Module):
     ) -> None:
         super().__init__()
         self.embed_dim = embed_dim
+
+        # Channel attention (enhance weak signal features)
         self.se = SEBlock(channels=2, reduction=se_reduction)
+
+        # Lazy projection to embedding dimension
         self.input_proj = nn.LazyLinear(embed_dim)
+
+        # Transformer-based attention
         self.timesformer = TimesFormerBlock(
             embed_dim=embed_dim, num_heads=num_heads, mlp_hidden=mlp_hidden
         )
